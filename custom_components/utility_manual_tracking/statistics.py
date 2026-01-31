@@ -1,3 +1,4 @@
+from homeassistant.components.recorder import get_instance
 from homeassistant.components.recorder.models import StatisticMetaData, StatisticData
 from homeassistant.components.recorder.statistics import (
     async_add_external_statistics,
@@ -54,4 +55,5 @@ def reset_statistics(
     """Clear statistics for a sensor."""
     statistics_id = get_statistics_id(sensor_id, algorithm)
     LOGGER.debug(f"Clearing statistics {statistics_id}")
-    clear_statistics(hass, statistics_id)
+    instance = get_instance(hass)
+    clear_statistics(instance, [statistics_id])
