@@ -55,5 +55,12 @@ def reset_statistics(
     """Clear statistics for a sensor."""
     statistics_id = get_statistics_id(sensor_id, algorithm)
     LOGGER.debug(f"Clearing statistics {statistics_id}")
-    instance = get_instance(hass)
-    clear_statistics(instance, [statistics_id])
+    try:
+        instance = get_instance(hass)
+        clear_statistics(instance, [statistics_id])
+    except Exception:
+        LOGGER.warning(
+            "Failed to clear statistics %s, proceeding with backfill",
+            statistics_id,
+            exc_info=True,
+        )

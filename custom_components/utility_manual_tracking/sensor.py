@@ -117,6 +117,22 @@ class UtilityManualTrackingSensor(SensorEntity):
                 {"energy": self._attr_native_unit_of_measurement},
                 {"change"},
             )
+
+            # Aggregate per-hour consumption across all devices
+            hourly_totals: dict[datetime, float] = {}
+            for entity_id, rows in stats.items():
+                for row in rows:
+                    start = row["start"]
+                    if isinstance(start, datetime):
+                        hour_dt = start
+                    else:
+                        hour_dt = datetime.fromtimestamp(start, tz=timezone.utc)
+                    hour_key = hour_dt.replace(minute=0, second=0, microsecond=0)
+                    change = row.get("change")
+                    if change is not None and change > 0:
+                        hourly_totals[hour_key] = hourly_totals.get(hour_key, 0.0) + change
+
+            return hourly_totals
         except Exception:
             LOGGER.warning(
                 "Failed to query device statistics for %s, falling back to even distribution",
@@ -124,18 +140,6 @@ class UtilityManualTrackingSensor(SensorEntity):
                 exc_info=True,
             )
             return {}
-
-        # Aggregate per-hour consumption across all devices
-        hourly_totals: dict[datetime, float] = {}
-        for entity_id, rows in stats.items():
-            for row in rows:
-                hour_dt = datetime.fromtimestamp(row["start"], tz=timezone.utc)
-                hour_key = hour_dt.replace(minute=0, second=0, microsecond=0)
-                change = row.get("change")
-                if change is not None and change > 0:
-                    hourly_totals[hour_key] = hourly_totals.get(hour_key, 0.0) + change
-
-        return hourly_totals
 
     def set_value(self, value, date_utc) -> None:
         """Update the sensor state."""
@@ -205,11 +209,18 @@ class UtilityManualTrackingSensor(SensorEntity):
             return
 
         LOGGER.debug(f"Resetting statistics for {self.entity_id}")
-        reset_statistics(
-            self.hass,
-            self.unique_id,
-            self._algorithm,
-        )
+        try:
+            reset_statistics(
+                self.hass,
+                self.unique_id,
+                self._algorithm,
+            )
+        except Exception:
+            LOGGER.warning(
+                "Failed to clear existing statistics for %s, proceeding with backfill",
+                self.entity_id,
+                exc_info=True,
+            )
 
         # Backfill statistics with the previous reads
         # and the last read value
