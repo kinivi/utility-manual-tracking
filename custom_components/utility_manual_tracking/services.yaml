@@ -14,3 +14,11 @@ update_meter_value:
       required: false
       description: The date to that the meter was read (optional). The format should be YYYY-mm-dd HH.
       example: 2023-10-01 11
+
+reset_meter_statistics:
+  name: Reset Meter Statistics
+  description: Clear and recalculate all statistics from stored readings
+  target:
+    entity:
+      domain: sensor
+      integration: utility_manual_tracking

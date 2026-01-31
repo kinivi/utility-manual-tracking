@@ -3,7 +3,10 @@ from __future__ import annotations
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from custom_components.utility_manual_tracking.action import handle_update_meter_value
+from custom_components.utility_manual_tracking.action import (
+    handle_reset_meter_statistics,
+    handle_update_meter_value,
+)
 from custom_components.utility_manual_tracking.consts import (
     CONF_KNOWN_DEVICE_ENTITIES,
     DOMAIN,
@@ -15,6 +18,7 @@ def setup(hass: HomeAssistant, config: dict):
     """Setup the Utility Manual Tracking integration."""
     hass.data.setdefault(DOMAIN, {})
     hass.services.register(DOMAIN, "update_meter_value", handle_update_meter_value)
+    hass.services.register(DOMAIN, "reset_meter_statistics", handle_reset_meter_statistics)
     return True
 
 
