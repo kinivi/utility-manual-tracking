@@ -1,7 +1,8 @@
 {
     "config": {
         "error": {
-            "unknown_error": "Unexpected error"
+            "unknown_error": "Unexpected error",
+            "device_aware_energy_only": "Device-aware smoothing is only available for energy meters."
         },
         "step": {
             "user": {
@@ -11,7 +12,23 @@
                     "meter_class": "Meter class",
                     "algorithm": "Algorithm"
                 },
-                "description": "Enter your meter name (e.g. 'Gas Meter', 'Electric Meter'); unit (e.g. 'kWh', 'm³') and class (e.g. 'energy')."
+                "description": "Enter your meter name (e.g. 'Gas Meter', 'Electric Meter'); unit (e.g. 'kWh', 'm³') and class (e.g. 'energy'). Select 'device_aware' algorithm to use smart smoothing based on known device consumption."
+            },
+            "device_aware": {
+                "data": {
+                    "known_device_entities": "Known device entities"
+                },
+                "description": "Select energy-measuring entities (smart plugs, energy monitors) whose consumption data will be used for smarter interpolation between meter readings."
+            }
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "data": {
+                    "known_device_entities": "Known device entities"
+                },
+                "description": "Select energy-measuring entities for device-aware interpolation."
             }
         }
     }

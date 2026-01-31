@@ -10,6 +10,7 @@ CONF_METER_NAME = "meter_name"
 CONF_METER_UNIT = "meter_unit"
 CONF_METER_CLASS = "meter_class"
 CONF_ALGORITHM = "algorithm"
+CONF_KNOWN_DEVICE_ENTITIES = "known_device_entities"
 
 ATTRIBUTION = "Data provided by Amber Electric"
 
