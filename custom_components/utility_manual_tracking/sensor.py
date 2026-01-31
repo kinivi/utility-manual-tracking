@@ -114,7 +114,7 @@ class UtilityManualTrackingSensor(SensorEntity):
                 end_time,
                 set(self._known_device_entities),
                 "hour",
-                None,
+                {"energy": self._attr_native_unit_of_measurement},
                 {"change"},
             )
         except Exception:
