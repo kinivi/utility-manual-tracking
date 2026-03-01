@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pathlib
 
-from homeassistant.components import frontend as ha_frontend
+from homeassistant.components.frontend import async_register_built_in_panel
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -33,19 +33,20 @@ async def async_setup(hass: HomeAssistant, config: dict):
     )
 
     # Register sidebar panel
-    ha_frontend.async_register_panel(
-        hass,
-        component_name="custom",
-        sidebar_title="Utilities",
-        sidebar_icon="mdi:lightning-bolt-circle",
-        frontend_url_path="utility-dashboard",
-        config={
-            "_panel_custom": {
-                "name": "utility-dashboard-panel",
-                "module_url": f"{PANEL_URL}/utility-dashboard.js",
-            }
-        },
-    )
+    if DOMAIN not in hass.data.get("frontend_panels", {}):
+        async_register_built_in_panel(
+            hass,
+            component_name="custom",
+            sidebar_title="Utilities",
+            sidebar_icon="mdi:lightning-bolt-circle",
+            frontend_url_path="utility-dashboard",
+            config={
+                "_panel_custom": {
+                    "name": "utility-dashboard-panel",
+                    "js_url": f"{PANEL_URL}/utility-dashboard.js",
+                }
+            },
+        )
 
     return True
 
