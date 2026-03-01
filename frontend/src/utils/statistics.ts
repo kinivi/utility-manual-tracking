@@ -1,10 +1,16 @@
 import type { StatisticValue, DailyConsumption } from "../types";
 
+/** HA statistics `start` can be an ISO string or numeric timestamp (seconds). */
+function toDate(start: string | number): Date {
+  if (typeof start === "number") return new Date(start * 1000);
+  return new Date(start);
+}
+
 export function statsToDaily(stats: StatisticValue[]): DailyConsumption[] {
   const dayMap = new Map<string, number>();
 
   for (const s of stats) {
-    const day = new Date(s.start).toISOString().slice(0, 10);
+    const day = toDate(s.start).toISOString().slice(0, 10);
     dayMap.set(day, (dayMap.get(day) || 0) + (s.change ?? 0));
   }
 
@@ -17,7 +23,7 @@ export function statsToHourlyHeatmap(stats: StatisticValue[]): { dayOfWeek: numb
   const grid = new Map<string, { sum: number; count: number }>();
 
   for (const s of stats) {
-    const d = new Date(s.start);
+    const d = toDate(s.start);
     const key = `${d.getDay()}-${d.getHours()}`;
     const existing = grid.get(key) || { sum: 0, count: 0 };
     existing.sum += s.change ?? 0;

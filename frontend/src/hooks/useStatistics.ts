@@ -2,6 +2,12 @@ import { useState, useEffect, useCallback } from "react";
 import { useHass } from "./useHass";
 import type { StatisticsResult, DailyConsumption, StatisticValue } from "../types";
 
+/** HA statistics `start` can be an ISO string or a numeric timestamp (seconds). */
+function toISODate(start: string | number): string {
+  if (typeof start === "string") return start;
+  return new Date(start * 1000).toISOString();
+}
+
 const ELECTRICITY_STAT_ID = "utility_manual_tracking:utility_manual_tracking_electricity_meter_energy_statistics_device_aware";
 
 export function useStatistics(days: number = 30) {
@@ -46,13 +52,13 @@ export function useStatistics(days: number = 30) {
         setHourlyStats(hourly);
         setDailyStats(
           daily.map((s) => ({
-            date: s.start,
+            date: toISODate(s.start),
             value: s.change ?? 0,
           }))
         );
         setMonthlyStats(
           monthly.map((s) => ({
-            date: s.start,
+            date: toISODate(s.start),
             value: s.change ?? 0,
           }))
         );
