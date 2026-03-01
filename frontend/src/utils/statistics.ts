@@ -44,7 +44,7 @@ export function currentMonthTotal(stats: DailyConsumption[]): number {
   const now = new Date();
   const monthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   return stats
-    .filter((s) => s.date.startsWith(monthPrefix))
+    .filter((s) => String(s.date).startsWith(monthPrefix))
     .reduce((sum, s) => sum + s.value, 0);
 }
 

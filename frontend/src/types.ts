@@ -27,8 +27,8 @@ export interface HomeAssistant {
 // Statistics types
 
 export interface StatisticValue {
-  start: string;
-  end: string;
+  start: string | number;
+  end: string | number;
   sum?: number;
   change?: number;
   mean?: number;

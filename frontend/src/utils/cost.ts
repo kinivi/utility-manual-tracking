@@ -7,7 +7,7 @@ export function dailyCost(consumption: number, rate: number): number {
 export function monthlyCost(dailyConsumption: DailyConsumption[], rate: number, month?: string): number {
   const prefix = month || currentMonthPrefix();
   const total = dailyConsumption
-    .filter((d) => d.date.startsWith(prefix))
+    .filter((d) => String(d.date).startsWith(prefix))
     .reduce((sum, d) => sum + d.value, 0);
   return Math.round(total * rate * 100) / 100;
 }
