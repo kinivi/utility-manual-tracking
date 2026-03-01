@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pathlib
 
+from homeassistant.components import frontend as ha_frontend
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -23,8 +24,8 @@ PANEL_FRONTEND_PATH = str(pathlib.Path(__file__).parent / "frontend")
 async def async_setup(hass: HomeAssistant, config: dict):
     """Setup the Utility Manual Tracking integration."""
     hass.data.setdefault(DOMAIN, {})
-    hass.services.async_register(DOMAIN, "update_meter_value", handle_update_meter_value)
-    hass.services.async_register(DOMAIN, "reset_meter_statistics", handle_reset_meter_statistics)
+    hass.services.register(DOMAIN, "update_meter_value", handle_update_meter_value)
+    hass.services.register(DOMAIN, "reset_meter_statistics", handle_reset_meter_statistics)
 
     # Serve built frontend files
     await hass.http.async_register_static_paths(
@@ -32,7 +33,8 @@ async def async_setup(hass: HomeAssistant, config: dict):
     )
 
     # Register sidebar panel
-    hass.components.frontend.async_register_panel(
+    ha_frontend.async_register_panel(
+        hass,
         component_name="custom",
         sidebar_title="Utilities",
         sidebar_icon="mdi:lightning-bolt-circle",
