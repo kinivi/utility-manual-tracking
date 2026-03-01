@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:host {
+  display: block;
+  height: 100%;
+  --primary-color: var(--primary-color, #03a9f4);
+}
+
+.utility-dashboard {
+  font-family: var(--paper-font-body1_-_font-family, "Roboto", "Noto", sans-serif);
+  color: var(--primary-text-color, #212121);
+  background: var(--primary-background-color, #fafafa);
+  min-height: 100vh;
+  padding: 16px;
+}

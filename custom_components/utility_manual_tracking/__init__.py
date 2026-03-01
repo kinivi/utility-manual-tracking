@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import pathlib
+
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
@@ -13,12 +16,35 @@ from custom_components.utility_manual_tracking.consts import (
     PLATFORMS,
 )
 
+PANEL_URL = "/utility_manual_tracking/panel"
+PANEL_FRONTEND_PATH = str(pathlib.Path(__file__).parent / "frontend")
 
-def setup(hass: HomeAssistant, config: dict):
+
+async def async_setup(hass: HomeAssistant, config: dict):
     """Setup the Utility Manual Tracking integration."""
     hass.data.setdefault(DOMAIN, {})
-    hass.services.register(DOMAIN, "update_meter_value", handle_update_meter_value)
-    hass.services.register(DOMAIN, "reset_meter_statistics", handle_reset_meter_statistics)
+    hass.services.async_register(DOMAIN, "update_meter_value", handle_update_meter_value)
+    hass.services.async_register(DOMAIN, "reset_meter_statistics", handle_reset_meter_statistics)
+
+    # Serve built frontend files
+    await hass.http.async_register_static_paths(
+        [StaticPathConfig(PANEL_URL, PANEL_FRONTEND_PATH, cache_headers=True)]
+    )
+
+    # Register sidebar panel
+    hass.components.frontend.async_register_panel(
+        component_name="custom",
+        sidebar_title="Utilities",
+        sidebar_icon="mdi:lightning-bolt-circle",
+        frontend_url_path="utility-dashboard",
+        config={
+            "_panel_custom": {
+                "name": "utility-dashboard-panel",
+                "module_url": f"{PANEL_URL}/utility-dashboard.js",
+            }
+        },
+    )
+
     return True
 
 
