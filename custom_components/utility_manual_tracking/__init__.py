@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import pathlib
 
 from homeassistant.components.frontend import async_register_built_in_panel
@@ -28,17 +27,12 @@ async def async_setup(hass: HomeAssistant, config: dict):
     hass.services.async_register(DOMAIN, "update_meter_value", handle_update_meter_value)
     hass.services.async_register(DOMAIN, "reset_meter_statistics", handle_reset_meter_statistics)
 
-    # Serve built frontend files
+    # Serve built frontend files (no cache so updates apply immediately)
     await hass.http.async_register_static_paths(
-        [StaticPathConfig(PANEL_URL, PANEL_FRONTEND_PATH, cache_headers=True)]
+        [StaticPathConfig(PANEL_URL, PANEL_FRONTEND_PATH, cache_headers=False)]
     )
 
     # Register sidebar panel (cache-bust with file hash)
-    js_path = pathlib.Path(PANEL_FRONTEND_PATH) / "utility-dashboard.js"
-    js_hash = ""
-    if js_path.exists():
-        js_hash = hashlib.md5(js_path.read_bytes()).hexdigest()[:8]
-
     if DOMAIN not in hass.data.get("frontend_panels", {}):
         async_register_built_in_panel(
             hass,
@@ -49,7 +43,7 @@ async def async_setup(hass: HomeAssistant, config: dict):
             config={
                 "_panel_custom": {
                     "name": "utility-dashboard-panel",
-                    "js_url": f"{PANEL_URL}/utility-dashboard.js?v={js_hash}",
+                    "js_url": f"{PANEL_URL}/utility-dashboard-panel.js",
                 }
             },
         )

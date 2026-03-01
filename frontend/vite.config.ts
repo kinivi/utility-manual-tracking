@@ -8,7 +8,7 @@ export default defineConfig({
       entry: "src/main.tsx",
       formats: ["iife"],
       name: "UtilityDashboard",
-      fileName: () => "utility-dashboard.js",
+      fileName: () => "utility-dashboard-panel.js",
     },
     outDir: "../custom_components/utility_manual_tracking/frontend",
     emptyOutDir: false,
