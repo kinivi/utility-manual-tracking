@@ -1,17 +1,12 @@
 import { useMemo } from "react";
 import { useRecorderQuery } from "./useRecorderQuery";
 import { ELECTRICITY_STAT_ID } from "./useStatistics";
+import { useHass } from "./useHass";
+import { useTimeRange } from "./useTimeRange";
+import { getFirstComparableReadingStartISO, maxISOStart } from "../utils/readingBaseline";
 import type { DeviceConsumption, StatisticValue } from "../types";
 
-/** HA statistics `start` can be an ISO string or a numeric timestamp (seconds). */
-function toISODate(start: string | number): string {
-  if (typeof start === "string") return start;
-  return new Date(start * 1000).toISOString();
-}
-
-function toDateKey(start: string | number): string {
-  return toISODate(start).slice(0, 10);
-}
+import { toISODate, toDateKey } from "../utils/dateUtils";
 
 export const KNOWN_DEVICES = [
   { entityId: "sensor.bathroom_washer_energy_this_month", name: "Washer", color: "#4fc3f7" },
@@ -52,14 +47,31 @@ export function useDeviceBreakdown(options: UseDeviceBreakdownOptions = {}): {
   loading: boolean;
   refresh: () => void;
 } {
+  const hass = useHass();
+  const { resolved } = useTimeRange();
   const enabled = options.enabled !== false;
+  const baselineStart = useMemo(
+    () =>
+      getFirstComparableReadingStartISO(
+        hass.states["sensor.utility_manual_tracking_electricity_meter_energy"]
+      ),
+    [hass.states]
+  );
+  const effectiveRangeStart = useMemo(
+    () => maxISOStart(resolved.start, baselineStart),
+    [resolved.start, baselineStart]
+  );
   // Fetch all devices + total electricity in one query at daily granularity
   const allIds = useMemo(
     () => [ELECTRICITY_STAT_ID, ...KNOWN_DEVICES.map((d) => d.entityId)],
     []
   );
 
-  const query = useRecorderQuery(allIds, { period: "day", enabled });
+  const query = useRecorderQuery(allIds, {
+    period: "day",
+    startTime: effectiveRangeStart,
+    enabled,
+  });
 
   const breakdown = useMemo((): DeviceBreakdown | null => {
     if (!enabled) return null;

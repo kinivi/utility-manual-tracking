@@ -14,10 +14,7 @@ interface DayDetailPanelProps {
   onClose: () => void;
 }
 
-function toISODate(start: string | number): string {
-  if (typeof start === "string") return start;
-  return new Date(start * 1000).toISOString();
-}
+import { toISODate } from "../utils/dateUtils";
 
 export function DayDetailPanel({ date, onClose }: DayDetailPanelProps) {
   const hass = useHass();

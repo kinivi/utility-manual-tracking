@@ -1,9 +1,10 @@
 import type { StatisticValue, DailyConsumption } from "../types";
 
-/** HA statistics `start` can be an ISO string or numeric timestamp (seconds). */
+import { safeParseDate } from "./dateUtils";
+
 function toDate(start: string | number): Date {
   if (typeof start === "number") return new Date(start * 1000);
-  return new Date(start);
+  return safeParseDate(String(start));
 }
 
 export function statsToDaily(stats: StatisticValue[]): DailyConsumption[] {

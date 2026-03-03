@@ -60,11 +60,12 @@ export function ElectricityDetail() {
       }[];
       const result: { value: number; date: string; delta?: number; cost?: number }[] = [];
 
-      for (let i = 0; i < previousReads.length; i++) {
+      // Skip baseline row (index 0): it has no comparable delta by definition.
+      for (let i = 1; i < previousReads.length; i++) {
         const r = previousReads[i];
         const date = new Date(r.timestamp).toLocaleDateString();
-        const delta = i > 0 ? r.value - previousReads[i - 1].value : undefined;
-        const cost = delta != null ? delta * settings.electricityRate : undefined;
+        const delta = r.value - previousReads[i - 1].value;
+        const cost = delta * settings.electricityRate;
         result.push({ value: r.value, date, delta, cost });
       }
 

@@ -65,7 +65,7 @@ export function WaterDetail() {
           icon={<DropletIcon className="w-5 h-5" />}
           value={totalDaily}
           unit="L/day"
-          color="#42a5f5"
+          borderColor="#42a5f5"
         />
         <KPICard
           label="Daily Cost"

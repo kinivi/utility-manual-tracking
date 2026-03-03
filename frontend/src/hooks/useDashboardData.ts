@@ -2,8 +2,8 @@
  * Centralized dashboard data layer.
  *
  * Combines electricity stats, device breakdown, and water meters into a
- * single hook with computed metrics. Heavy analytics run via requestIdleCallback
- * to avoid blocking the main thread.
+ * single hook with computed metrics. Heavy analytics run in a Web Worker
+ * with automatic main-thread fallback.
  *
  * Tab-based fetch strategy:
  *   - "situation": all overview-critical data
@@ -18,7 +18,8 @@ import { useDeviceBreakdown } from "./useDeviceBreakdown";
 import { useWaterMeters } from "./useWaterMeters";
 import { useSettings } from "./useSettings";
 import { useTimeRange } from "./useTimeRange";
-import { computeMetrics, type ComputeMetricsInput } from "../utils/analyticsEngine";
+import { type ComputeMetricsInput } from "../utils/analyticsEngine";
+import { useAnalyticsWorker } from "./useAnalyticsWorker";
 import { rangeDays } from "../utils/timeRange";
 import type { DashboardMetrics, TabId } from "../types";
 
@@ -36,6 +37,10 @@ export interface DashboardData {
   loading: boolean;
   /** True when refreshing in background (cached data is still shown) */
   refreshing: boolean;
+  /** Which execution mode is currently active for heavy analytics */
+  workerMode: "worker" | "fallback";
+  /** Worker initialization/runtime error when running in fallback */
+  workerError: string | null;
   /** Refresh all data sources */
   refresh: () => void;
 }
@@ -50,6 +55,7 @@ export function useDashboardData(activeTab: TabId): DashboardData {
   const { breakdown, loading: deviceLoading, refresh: refreshBreakdown } = useDeviceBreakdown({
     enabled: statsEnabled,
   });
+  const { computeMetricsAsync, mode, workerError } = useAnalyticsWorker();
   const { meters, totalDaily } = useWaterMeters();
   const { settings } = useSettings();
   const { resolved } = useTimeRange();
@@ -97,13 +103,17 @@ export function useDashboardData(activeTab: TabId): DashboardData {
       rangeDays: rangeDays(resolved),
     };
 
-    computeMetrics(input).then((result) => {
-      // Only apply if this is still the latest computation
-      if (computeIdRef.current === id) {
-        setMetrics(result);
-      }
-    });
-  }, [elecData, breakdown, totalDaily, settings, resolved]);
+    computeMetricsAsync(input)
+      .then((result) => {
+        // Only apply if this is still the latest computation
+        if (computeIdRef.current === id) {
+          setMetrics(result);
+        }
+      })
+      .catch(() => {
+        // Keep last successful metrics on compute failure.
+      });
+  }, [elecData, breakdown, totalDaily, settings, resolved, computeMetricsAsync]);
 
   const loading = (elecLoading || deviceLoading) && !elecData && !breakdown;
   const refreshing = (elecLoading || deviceLoading) && (!!elecData || !!breakdown);
@@ -118,6 +128,8 @@ export function useDashboardData(activeTab: TabId): DashboardData {
     metrics,
     loading,
     refreshing,
+    workerMode: mode,
+    workerError,
     refresh: () => {
       refreshElec();
       refreshBreakdown();

@@ -1,13 +1,12 @@
 import { useMemo } from "react";
 import { useRecorderQuery } from "./useRecorderQuery";
+import { useHass } from "./useHass";
+import { useTimeRange } from "./useTimeRange";
 import { statsToDaily } from "../utils/statistics";
+import { getFirstComparableReadingStartISO, maxISOStart } from "../utils/readingBaseline";
 import type { StatisticValue, DailyConsumption } from "../types";
 
-/** HA statistics `start` can be an ISO string or a numeric timestamp (seconds). */
-function toISODate(start: string | number): string {
-  if (typeof start === "string") return start;
-  return new Date(start * 1000).toISOString();
-}
+import { toISODate } from "../utils/dateUtils";
 
 const ELECTRICITY_STAT_ID =
   "utility_manual_tracking:utility_manual_tracking_electricity_meter_energy_statistics_device_aware";
@@ -43,18 +42,33 @@ export function useStatistics(options: UseStatisticsOptions = {}): {
   error: Error | null;
   refresh: () => void;
 } {
+  const hass = useHass();
+  const { resolved } = useTimeRange();
   const includeHourly = options.includeHourly !== false;
   const enabled = options.enabled !== false;
+  const baselineStart = useMemo(
+    () =>
+      getFirstComparableReadingStartISO(
+        hass.states["sensor.utility_manual_tracking_electricity_meter_energy"]
+      ),
+    [hass.states]
+  );
+  const effectiveRangeStart = useMemo(
+    () => maxISOStart(resolved.start, baselineStart),
+    [resolved.start, baselineStart]
+  );
 
   // Hourly stats — uses time range from context
   const hourlyQuery = useRecorderQuery([ELECTRICITY_STAT_ID], {
     period: "hour",
+    startTime: effectiveRangeStart,
     enabled: enabled && includeHourly,
   });
 
   // Daily stats — uses time range from context
   const dailyQuery = useRecorderQuery([ELECTRICITY_STAT_ID], {
     period: "day",
+    startTime: effectiveRangeStart,
     enabled,
   });
 
@@ -64,11 +78,15 @@ export function useStatistics(options: UseStatisticsOptions = {}): {
     d.setFullYear(d.getFullYear() - 1);
     return d.toISOString();
   }, []);
+  const monthlyEffectiveStart = useMemo(
+    () => maxISOStart(monthlyStart, baselineStart),
+    [monthlyStart, baselineStart]
+  );
   const monthlyEnd = useMemo(() => new Date().toISOString(), []);
 
   const monthlyQuery = useRecorderQuery([ELECTRICITY_STAT_ID], {
     period: "month",
-    startTime: monthlyStart,
+    startTime: monthlyEffectiveStart,
     endTime: monthlyEnd,
     staleTime: 30 * 60 * 1000, // Monthly data is slow-changing
     enabled,

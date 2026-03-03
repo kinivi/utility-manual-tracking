@@ -142,14 +142,24 @@ export interface DashboardMetrics {
     dailyRate: number;
     monthTotal: number;
     monthCost: number;
+    yearTotal: number;      // YTD kWh
+    yearCost: number;       // YTD electricity cost
     forecast: ForecastResult;
     sparkline: number[];
     anomaly: AnomalyResult | null;
   };
   water: {
-    dailyRate: number;     // L/day
-    monthEstimate: number; // m³
+    dailyRate: number;      // L/day
+    monthEstimate: number;  // m³
     monthCost: number;
+    yearCostEstimate: number; // YTD water cost estimate
+  };
+  yearRunningCost: number;  // electricity + water YTD combined
+  dailyAvgCost: number;     // yearRunningCost / days elapsed this year
+  budgetPace: {
+    percent: number;        // current month usage vs budget %
+    daysRemaining: number;
+    status: "good" | "warning" | "over";
   };
   funnelStages: UsageFunnelStage[];
   monthlyPoints: MonthlyConsumptionPoint[];

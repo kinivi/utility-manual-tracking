@@ -1,9 +1,8 @@
 /**
- * Analytics Engine — runs heavy computations off the critical render path
- * using requestIdleCallback (with setTimeout fallback).
+ * Analytics Engine.
  *
- * All functions are pure: data in → metrics out.
- * The schedule() wrapper yields to the main thread between compute batches.
+ * - `computeMetricsSync`: pure deterministic computation for Worker execution.
+ * - `computeMetrics`: main-thread fallback that schedules compute work in idle time.
  */
 
 import type {
@@ -17,6 +16,7 @@ import type {
 import { forecast } from "./forecast";
 import { detectAnomaly } from "./anomaly";
 import { currentMonthTotal } from "./statistics";
+import { safeParseDate } from "./dateUtils";
 
 // ---------- Idle scheduling ----------
 
@@ -84,12 +84,12 @@ export function computeMonthlyPoints(
 ): MonthlyConsumptionPoint[] {
   const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const points = monthlyStats.map((s) => {
-    const dt = new Date(s.date);
+    const dt = safeParseDate(s.date);
     const monthIdx = dt.getMonth();
     const year = String(dt.getFullYear()).slice(2);
     return {
-      monthKey: s.date.slice(0, 7),
-      label: `${MONTHS[monthIdx]} ${year}`,
+      monthKey: dt.toISOString().slice(0, 7),
+      label: `${MONTHS[monthIdx]} '${year}`,
       usage: +s.value.toFixed(1),
       cost: +(s.value * rate).toFixed(2),
       utility,
@@ -121,9 +121,7 @@ export interface ComputeMetricsInput {
   rangeDays: number;
 }
 
-export async function computeMetrics(
-  input: ComputeMetricsInput
-): Promise<DashboardMetrics> {
+export function computeMetricsSync(input: ComputeMetricsInput): DashboardMetrics {
   const {
     dailyStats,
     monthlyStats,
@@ -134,10 +132,8 @@ export async function computeMetrics(
     rangeDays: days,
   } = input;
 
-  // Schedule heavy work in idle frames
-  const elecForecast = await schedule(() => forecast(dailyStats));
-
-  const elecMonthTotal = await schedule(() => currentMonthTotal(dailyStats));
+  const elecForecast = forecast(dailyStats);
+  const elecMonthTotal = currentMonthTotal(dailyStats);
 
   const deviceTotal = deviceTotals.reduce((s, d) => s + d.value, 0) + baseLoadTotal;
   const effectiveMonthTotal = elecMonthTotal > 0 ? elecMonthTotal : deviceTotal;
@@ -146,12 +142,10 @@ export async function computeMetrics(
       ? elecForecast.dailyRate
       : deviceTotal / Math.max(1, days);
 
-  const anomaly = await schedule(() => {
-    const vals = dailyStats.map((d) => d.value);
-    return vals.length >= 7
-      ? detectAnomaly(vals, settings.anomalySensitivity)
-      : null;
-  });
+  const vals = dailyStats.map((d) => d.value);
+  const anomaly = vals.length >= 7
+    ? detectAnomaly(vals, settings.anomalySensitivity)
+    : null;
 
   const sparkline =
     dailyStats.length >= 2
@@ -168,26 +162,55 @@ export async function computeMetrics(
   const rangeBudget = avgDailyBudget * Math.max(1, days);
   const knownDeviceTotal = deviceTotals.reduce((s, d) => s + d.value, 0);
 
-  const funnelStages = await schedule(() =>
-    computeFunnelStages(
-      deviceTotal,
-      knownDeviceTotal,
-      rangeBudget
-    )
+  const funnelStages = computeFunnelStages(
+    deviceTotal,
+    knownDeviceTotal,
+    rangeBudget
   );
 
-  const monthlyPoints = await schedule(() =>
-    computeMonthlyPoints(monthlyStats, "electricity", settings.electricityRate)
+  const monthlyPoints = computeMonthlyPoints(
+    monthlyStats,
+    "electricity",
+    settings.electricityRate
   );
 
   // Water
   const waterMonthEstimate = (waterDailyL * dayOfMonth) / 1000; // L → m³
+
+  // Year-to-date calculations
+  const currentYear = String(now.getFullYear());
+  const yearElecTotal = dailyStats
+    .filter((d) => d.date.startsWith(currentYear))
+    .reduce((s, d) => s + d.value, 0);
+  const yearElecCost = +(yearElecTotal * settings.electricityRate).toFixed(2);
+
+  const dayOfYear = Math.ceil(
+    (now.getTime() - new Date(now.getFullYear(), 0, 1).getTime()) / 86400000
+  );
+  const yearWaterCostEstimate = +((waterDailyL / 1000) * Math.max(1, dayOfYear) * settings.waterRate).toFixed(2);
+  const yearRunningCost = +(yearElecCost + yearWaterCostEstimate).toFixed(2);
+  const dailyAvgCost = dayOfYear > 0 ? +(yearRunningCost / dayOfYear).toFixed(2) : 0;
+
+  // Budget pace for current month
+  const monthBudgetPercent = settings.monthlyElectricityBudget > 0
+    ? +((effectiveMonthTotal / settings.monthlyElectricityBudget) * 100).toFixed(0)
+    : 0;
+  const daysRemaining = daysInMonth - dayOfMonth;
+  const projectedMonth = dayOfMonth > 0
+    ? (effectiveMonthTotal / dayOfMonth) * daysInMonth
+    : 0;
+  const budgetStatus: "good" | "warning" | "over" =
+    monthBudgetPercent > 100 ? "over"
+      : projectedMonth > settings.monthlyElectricityBudget ? "warning"
+        : "good";
 
   return {
     electricity: {
       dailyRate: effectiveDailyRate,
       monthTotal: effectiveMonthTotal,
       monthCost: +(effectiveMonthTotal * settings.electricityRate).toFixed(2),
+      yearTotal: +yearElecTotal.toFixed(1),
+      yearCost: yearElecCost,
       forecast: elecForecast,
       sparkline,
       anomaly,
@@ -196,8 +219,22 @@ export async function computeMetrics(
       dailyRate: waterDailyL,
       monthEstimate: +waterMonthEstimate.toFixed(2),
       monthCost: +(waterMonthEstimate * settings.waterRate).toFixed(2),
+      yearCostEstimate: yearWaterCostEstimate,
+    },
+    yearRunningCost,
+    dailyAvgCost,
+    budgetPace: {
+      percent: monthBudgetPercent,
+      daysRemaining,
+      status: budgetStatus,
     },
     funnelStages,
     monthlyPoints,
   };
+}
+
+export async function computeMetrics(
+  input: ComputeMetricsInput
+): Promise<DashboardMetrics> {
+  return schedule(() => computeMetricsSync(input));
 }

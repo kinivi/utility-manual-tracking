@@ -1,13 +1,14 @@
 import React, { useRef, useEffect } from "react";
 import * as echarts from "echarts/core";
 import { BarChart } from "echarts/charts";
-import { GridComponent, TooltipComponent, DataZoomComponent, MarkLineComponent } from "echarts/components";
+import { GridComponent, TooltipComponent, DataZoomComponent, MarkLineComponent, MarkPointComponent } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
 import { baseTooltip, baseGrid, baseAxisLabel, baseSplitLine, baseAnimation } from "../utils/chartConfig";
 import { CHART_COLORS } from "../utils/theme";
+import { safeParseDate } from "../utils/dateUtils";
 import type { DailyConsumption } from "../types";
 
-echarts.use([BarChart, GridComponent, TooltipComponent, DataZoomComponent, MarkLineComponent, CanvasRenderer]);
+echarts.use([BarChart, GridComponent, TooltipComponent, DataZoomComponent, MarkLineComponent, MarkPointComponent, CanvasRenderer]);
 
 interface ConsumptionBarProps {
   data: DailyConsumption[];
@@ -37,8 +38,7 @@ export function ConsumptionBar({
     }
 
     const barColor = color || CHART_COLORS.primary();
-    // Create a faded version for gradient bottom
-    const barColorFaded = barColor + "60"; // 38% opacity hex suffix
+    const values = data.map((d) => d.value);
 
     const option: echarts.EChartsCoreOption = {
       ...baseAnimation(),
@@ -53,7 +53,7 @@ export function ConsumptionBar({
       xAxis: {
         type: "category",
         data: data.map((d) => {
-          const date = new Date(d.date);
+          const date = safeParseDate(d.date);
           return `${date.getMonth() + 1}/${date.getDate()}`;
         }),
         axisLabel: baseAxisLabel(),
@@ -68,15 +68,23 @@ export function ConsumptionBar({
       series: [
         {
           type: "bar",
-          data: data.map((d) => d.value),
+          data: values,
           itemStyle: {
             color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
               { offset: 0, color: barColor },
-              { offset: 1, color: barColorFaded },
+              { offset: 0.4, color: barColor + "CC" },
+              { offset: 1, color: barColor + "40" },
             ]),
-            borderRadius: [4, 4, 0, 0],
+            borderRadius: [6, 6, 0, 0],
           },
           barMaxWidth: 28,
+          markPoint: data.length >= 5 ? {
+            data: [
+              { type: "max", symbol: "pin", symbolSize: 28, itemStyle: { color: CHART_COLORS.error() }, label: { formatter: (p: any) => p.value.toFixed(1), fontSize: 9, color: "#fff" } },
+              { type: "min", symbol: "pin", symbolSize: 28, symbolRotate: 180, itemStyle: { color: CHART_COLORS.success() }, label: { formatter: (p: any) => p.value.toFixed(1), fontSize: 9, color: "#fff", offset: [0, 6] } },
+            ],
+            silent: true,
+          } : undefined,
           markLine: data.length >= 3 ? {
             data: [{ type: "average", name: "Avg" }],
             lineStyle: { type: "dashed", color: "#bdbdbd", width: 1 },

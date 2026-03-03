@@ -5,6 +5,7 @@ import { GridComponent, TooltipComponent, MarkLineComponent } from "echarts/comp
 import { CanvasRenderer } from "echarts/renderers";
 import { baseTooltip, baseGrid, baseAxisLabel, baseSplitLine, baseAnimation } from "../utils/chartConfig";
 import { CHART_COLORS } from "../utils/theme";
+import { safeParseDate } from "../utils/dateUtils";
 import type { DailyConsumption } from "../types";
 
 echarts.use([LineChart, GridComponent, TooltipComponent, MarkLineComponent, CanvasRenderer]);
@@ -41,7 +42,7 @@ export function ForecastLine({ data, forecastDays = 14, unit = "kWh", height = 3
     const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX || 1);
     const intercept = (sumY - slope * sumX) / n;
 
-    const lastDate = new Date(data[data.length - 1].date);
+    const lastDate = safeParseDate(data[data.length - 1].date);
     const forecastDates: string[] = [];
     for (let i = 1; i <= forecastDays; i++) {
       const d = new Date(lastDate);
@@ -51,7 +52,7 @@ export function ForecastLine({ data, forecastDays = 14, unit = "kWh", height = 3
 
     const allDates = [
       ...data.map((d) => {
-        const dt = new Date(d.date);
+        const dt = safeParseDate(d.date);
         return `${dt.getMonth() + 1}/${dt.getDate()}`;
       }),
       ...forecastDates,

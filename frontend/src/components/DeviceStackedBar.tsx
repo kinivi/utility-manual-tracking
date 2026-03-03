@@ -11,6 +11,7 @@ import {
 import { CanvasRenderer } from "echarts/renderers";
 import { baseTooltip, baseAxisLabel, baseSplitLine, baseAnimation } from "../utils/chartConfig";
 import type { DeviceTimeSeries } from "../hooks/useDeviceBreakdown";
+import { safeParseDate } from "../utils/dateUtils";
 import type { DailyConsumption } from "../types";
 
 echarts.use([BarChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, MarkLineComponent, CanvasRenderer]);
@@ -38,7 +39,7 @@ export function DeviceStackedBar({
   // Sorted date keys from totalStats
   const dates = totalStats.map((d) => d.date);
   const dateLabels = dates.map((d) => {
-    const dt = new Date(d);
+    const dt = safeParseDate(d);
     return `${dt.getMonth() + 1}/${dt.getDate()}`;
   });
 
