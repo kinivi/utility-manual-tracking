@@ -1,37 +1,52 @@
 import React, { useMemo, useState } from "react";
 import { useStatistics } from "../hooks/useStatistics";
-import { useDevices } from "../hooks/useDevices";
+import { useDeviceBreakdown } from "../hooks/useDeviceBreakdown";
+import { useSettings } from "../hooks/useSettings";
+import { useTimeRange } from "../hooks/useTimeRange";
 import { useHass } from "../hooks/useHass";
 import { ConsumptionBar } from "../components/ConsumptionBar";
+import { DeviceStackedBar } from "../components/DeviceStackedBar";
 import { DevicePie } from "../components/DevicePie";
 import { CostSummary } from "../components/CostSummary";
 import { ForecastLine } from "../components/ForecastLine";
 import { HeatmapGrid } from "../components/HeatmapGrid";
+import { RangeGauge } from "../components/RangeGauge";
 import { ReadingTimeline } from "../components/ReadingTimeline";
-import { statsToHourlyHeatmap, currentMonthTotal } from "../utils/statistics";
+import { DayDetailPanel } from "../components/DayDetailPanel";
+import { Card } from "../components/ui/Card";
+import { SkeletonElectricityPage } from "../components/ui/Skeleton";
+import { statsToHourlyHeatmap, dailyAverage } from "../utils/statistics";
 import { forecast } from "../utils/forecast";
 import { dailyCost, monthlyCost, annualProjection } from "../utils/cost";
-import type { DashboardSettings } from "../types";
 
-interface ElectricityDetailProps {
-  settings: DashboardSettings;
-}
-
-const RANGE_OPTIONS = [
-  { label: "30 days", value: 30 },
-  { label: "90 days", value: 90 },
-  { label: "1 year", value: 365 },
-];
-
-export function ElectricityDetail({ settings }: ElectricityDetailProps) {
-  const [range, setRange] = useState(30);
-  const { hourlyStats, dailyStats, monthlyStats, loading } = useStatistics(range);
-  const { devices } = useDevices(range);
+export function ElectricityDetail() {
+  const { data: elecData, loading } = useStatistics();
+  const { breakdown } = useDeviceBreakdown();
+  const { settings } = useSettings();
+  const { resolved } = useTimeRange();
   const hass = useHass();
+
+  const [drillDay, setDrillDay] = useState<string | null>(null);
+
+  const dailyStats = elecData?.dailyStats ?? [];
+  const hourlyStats = elecData?.hourlyStats ?? [];
+  const monthlyStats = elecData?.monthlyStats ?? [];
 
   const elecForecast = useMemo(() => forecast(dailyStats), [dailyStats]);
   const heatmapData = useMemo(() => statsToHourlyHeatmap(hourlyStats), [hourlyStats]);
-  const monthTotal = useMemo(() => currentMonthTotal(dailyStats), [dailyStats]);
+
+  const totalConsumption = useMemo(
+    () => dailyStats.reduce((s, d) => s + d.value, 0),
+    [dailyStats]
+  );
+
+  const elecDailyAvg = useMemo(() => dailyAverage(dailyStats), [dailyStats]);
+  const elecStdDev = useMemo(() => {
+    if (dailyStats.length < 2) return 0;
+    const avg = elecDailyAvg;
+    const variance = dailyStats.reduce((s, d) => s + (d.value - avg) ** 2, 0) / dailyStats.length;
+    return Math.sqrt(variance);
+  }, [dailyStats, elecDailyAvg]);
 
   // Parse readings from the electricity meter entity
   const readings = useMemo(() => {
@@ -53,7 +68,6 @@ export function ElectricityDetail({ settings }: ElectricityDetailProps) {
         result.push({ value: r.value, date, delta, cost });
       }
 
-      // Add current reading
       const currentValue = parseFloat(entity.state);
       if (!isNaN(currentValue) && previousReads.length > 0) {
         const lastRead = previousReads[previousReads.length - 1];
@@ -72,45 +86,50 @@ export function ElectricityDetail({ settings }: ElectricityDetailProps) {
     }
   }, [hass.states, settings.electricityRate]);
 
-  const totalConsumption = useMemo(
-    () => dailyStats.reduce((s, d) => s + d.value, 0),
-    [dailyStats]
-  );
-
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-ha-text-secondary">Loading electricity data...</div>
-      </div>
-    );
+    return <SkeletonElectricityPage />;
   }
 
   return (
     <div className="space-y-6">
-      {/* Range Selector */}
-      <div className="flex gap-2">
-        {RANGE_OPTIONS.map((opt) => (
-          <button
-            key={opt.value}
-            onClick={() => setRange(opt.value)}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-              range === opt.value
-                ? "bg-ha-primary text-white"
-                : "bg-ha-card text-ha-text-secondary border border-ha-divider hover:bg-gray-100"
-            }`}
-          >
-            {opt.label}
-          </button>
-        ))}
-      </div>
+      {/* Device Stacked Bar Chart (primary) */}
+      {breakdown ? (
+        <Card>
+          <h3 className="text-base font-semibold text-ha-text mb-3">
+            Daily Consumption by Device — {resolved.label}
+          </h3>
+          <DeviceStackedBar
+            devices={breakdown.devices}
+            baseLoad={breakdown.baseLoad}
+            totalStats={dailyStats}
+            onBarClick={setDrillDay}
+          />
+        </Card>
+      ) : (
+        <Card>
+          <h3 className="text-base font-semibold text-ha-text mb-3">
+            Daily Consumption — {resolved.label}
+          </h3>
+          <ConsumptionBar data={dailyStats} unit="kWh" onBarClick={setDrillDay} />
+        </Card>
+      )}
 
-      {/* Daily Consumption Chart */}
-      <div className="bg-ha-card rounded-xl p-4 shadow-sm border border-ha-divider">
-        <h3 className="text-sm font-semibold text-ha-text-secondary mb-3">
-          Daily Consumption — Last {range} Days
-        </h3>
-        <ConsumptionBar data={dailyStats} unit="kWh" />
-      </div>
+      {/* Day Drill-Down */}
+      {drillDay && (
+        <DayDetailPanel
+          date={drillDay}
+          onClose={() => setDrillDay(null)}
+        />
+      )}
+
+      {/* Today vs Range */}
+      <RangeGauge
+        current={dailyStats.length > 0 ? dailyStats[dailyStats.length - 1].value : 0}
+        average={elecDailyAvg}
+        stdDev={elecStdDev}
+        unit="kWh"
+        label="Today vs Typical Range"
+      />
 
       {/* Cost + Device Breakdown Row */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -120,48 +139,50 @@ export function ElectricityDetail({ settings }: ElectricityDetailProps) {
           annualProjection={annualProjection(elecForecast.dailyRate, settings.electricityRate)}
           currency={settings.currency}
         />
-        <div className="bg-ha-card rounded-xl p-4 shadow-sm border border-ha-divider">
-          <h3 className="text-sm font-semibold text-ha-text-secondary mb-3">Device Breakdown</h3>
-          <DevicePie devices={devices} totalConsumption={totalConsumption} height={250} />
-        </div>
+        <Card>
+          <h3 className="text-base font-semibold text-ha-text mb-3">Device Breakdown</h3>
+          <DevicePie
+            devices={breakdown?.totals ?? []}
+            totalConsumption={totalConsumption}
+            height={250}
+          />
+        </Card>
       </div>
 
       {/* Forecast */}
-      <div className="bg-ha-card rounded-xl p-4 shadow-sm border border-ha-divider">
+      <Card>
         <div className="flex justify-between items-center mb-3">
-          <h3 className="text-sm font-semibold text-ha-text-secondary">
-            Trend & Forecast
-          </h3>
-          <div className="text-sm text-ha-text-secondary">
-            R² = {elecForecast.confidence.toFixed(2)} · Annual projection: {elecForecast.annualForecast.toLocaleString()} kWh
+          <h3 className="text-base font-semibold text-ha-text">Trend & Forecast</h3>
+          <div className="text-xs text-ha-text-secondary">
+            R² = {elecForecast.confidence.toFixed(2)} · Annual: {elecForecast.annualForecast.toLocaleString()} kWh
             ({settings.currency}{annualProjection(elecForecast.dailyRate, settings.electricityRate).toLocaleString()})
           </div>
         </div>
         <ForecastLine data={dailyStats} unit="kWh" />
-      </div>
+      </Card>
 
       {/* Heatmap */}
       {heatmapData.length > 0 && (
-        <div className="bg-ha-card rounded-xl p-4 shadow-sm border border-ha-divider">
-          <h3 className="text-sm font-semibold text-ha-text-secondary mb-3">
-            Consumption Heatmap (Hour × Day of Week)
+        <Card>
+          <h3 className="text-base font-semibold text-ha-text mb-3">
+            Consumption Heatmap (Hour x Day of Week)
           </h3>
           <HeatmapGrid data={heatmapData} />
-        </div>
+        </Card>
       )}
 
       {/* Monthly Comparison */}
       {monthlyStats.length > 0 && (
-        <div className="bg-ha-card rounded-xl p-4 shadow-sm border border-ha-divider">
-          <h3 className="text-sm font-semibold text-ha-text-secondary mb-3">Monthly Totals</h3>
+        <Card>
+          <h3 className="text-base font-semibold text-ha-text mb-3">Monthly Totals</h3>
           <ConsumptionBar data={monthlyStats} unit="kWh" showDataZoom={false} />
-        </div>
+        </Card>
       )}
 
       {/* Reading History */}
       {readings.length > 0 && (
         <div>
-          <h3 className="text-sm font-semibold text-ha-text-secondary mb-3">Reading History</h3>
+          <h3 className="text-base font-semibold text-ha-text mb-3">Reading History</h3>
           <ReadingTimeline readings={readings} unit="kWh" currency={settings.currency} />
         </div>
       )}

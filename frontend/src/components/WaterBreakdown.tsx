@@ -3,6 +3,8 @@ import * as echarts from "echarts/core";
 import { BarChart } from "echarts/charts";
 import { GridComponent, TooltipComponent, LegendComponent } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
+import { baseTooltip, baseAxisLabel, baseSplitLine, baseAnimation } from "../utils/chartConfig";
+import { CHART_COLORS } from "../utils/theme";
 import type { WaterMeterData } from "../types";
 
 echarts.use([BarChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer]);
@@ -34,36 +36,38 @@ export function WaterBreakdown({ meters, height = 300 }: WaterBreakdownProps) {
     });
 
     const option: echarts.EChartsCoreOption = {
+      ...baseAnimation(),
       tooltip: {
-        trigger: "axis",
-        axisPointer: { type: "shadow" },
+        ...baseTooltip("axis"),
         formatter: (params: any) => {
           const items = Array.isArray(params) ? params : [params];
-          let html = items[0].name;
+          let html = `<div style="font-weight:600;margin-bottom:4px">${items[0].name}</div>`;
           let total = 0;
           for (const item of items) {
-            html += `<br/>${item.seriesName}: ${item.value.toFixed(1)} L/day`;
+            html += `<div>${item.marker} ${item.seriesName}: <strong>${item.value.toFixed(1)} L/day</strong></div>`;
             total += item.value;
           }
-          html += `<br/><b>Total: ${total.toFixed(1)} L/day</b>`;
+          html += `<div style="border-top:1px solid #e0e0e0;margin-top:4px;padding-top:4px;font-weight:600">Total: ${total.toFixed(1)} L/day</div>`;
           return html;
         },
       },
       legend: {
         bottom: 0,
-        textStyle: { color: "#727272" },
+        textStyle: { color: CHART_COLORS.text(), fontSize: 11 },
+        itemWidth: 12,
+        itemHeight: 12,
       },
       grid: { left: 50, right: 16, top: 16, bottom: 40 },
       xAxis: {
         type: "category",
         data: locations,
-        axisLabel: { color: "#727272" },
+        axisLabel: baseAxisLabel(),
       },
       yAxis: {
         type: "value",
         name: "L/day",
-        axisLabel: { color: "#727272" },
-        splitLine: { lineStyle: { color: "#e0e0e0", type: "dashed" } },
+        axisLabel: baseAxisLabel(),
+        splitLine: baseSplitLine(),
       },
       series: [
         {
@@ -85,7 +89,7 @@ export function WaterBreakdown({ meters, height = 300 }: WaterBreakdownProps) {
       ],
     };
 
-    instanceRef.current.setOption(option);
+    instanceRef.current.setOption(option, true);
 
     const handleResize = () => instanceRef.current?.resize();
     window.addEventListener("resize", handleResize);

@@ -16,6 +16,12 @@ const DAILY_SENSORS = [
   { entityId: "sensor.water_bathroom_hot_daily", location: "bathroom" as const, temp: "hot" as const },
 ];
 
+function safeParseNumber(value?: string): number {
+  if (value == null) return 0;
+  const n = Number.parseFloat(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
 export function useWaterMeters() {
   const hass = useHass();
 
@@ -32,9 +38,9 @@ export function useWaterMeters() {
         label: meter.label,
         location: meter.location,
         temp: meter.temp,
-        currentReading: entity ? parseFloat(entity.state) : 0,
-        dailyUsage: dailyEntity ? parseFloat(dailyEntity.state) : 0,
-        unit: entity?.attributes?.unit_of_measurement || "m\u00b3",
+        currentReading: safeParseNumber(entity?.state),
+        dailyUsage: safeParseNumber(dailyEntity?.state),
+        unit: entity?.attributes?.unit_of_measurement || "m³",
         previousReading: entity?.attributes?.previous_reading,
         lastReadingDate: entity?.attributes?.last_reading_date,
       };
@@ -43,7 +49,8 @@ export function useWaterMeters() {
 
   const totalDaily = useMemo(() => {
     const totalEntity = hass.states["sensor.water_total_daily"];
-    return totalEntity ? parseFloat(totalEntity.state) : meters.reduce((sum, m) => sum + m.dailyUsage, 0);
+    const total = safeParseNumber(totalEntity?.state);
+    return total > 0 ? total : meters.reduce((sum, m) => sum + m.dailyUsage, 0);
   }, [hass.states, meters]);
 
   return { meters, totalDaily };

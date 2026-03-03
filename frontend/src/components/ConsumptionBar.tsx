@@ -1,11 +1,13 @@
 import React, { useRef, useEffect } from "react";
 import * as echarts from "echarts/core";
 import { BarChart } from "echarts/charts";
-import { GridComponent, TooltipComponent, DataZoomComponent } from "echarts/components";
+import { GridComponent, TooltipComponent, DataZoomComponent, MarkLineComponent } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
+import { baseTooltip, baseGrid, baseAxisLabel, baseSplitLine, baseAnimation } from "../utils/chartConfig";
+import { CHART_COLORS } from "../utils/theme";
 import type { DailyConsumption } from "../types";
 
-echarts.use([BarChart, GridComponent, TooltipComponent, DataZoomComponent, CanvasRenderer]);
+echarts.use([BarChart, GridComponent, TooltipComponent, DataZoomComponent, MarkLineComponent, CanvasRenderer]);
 
 interface ConsumptionBarProps {
   data: DailyConsumption[];
@@ -13,9 +15,17 @@ interface ConsumptionBarProps {
   color?: string;
   height?: number;
   showDataZoom?: boolean;
+  onBarClick?: (date: string) => void;
 }
 
-export function ConsumptionBar({ data, unit = "kWh", color, height = 300, showDataZoom = true }: ConsumptionBarProps) {
+export function ConsumptionBar({
+  data,
+  unit = "kWh",
+  color,
+  height = 300,
+  showDataZoom = true,
+  onBarClick,
+}: ConsumptionBarProps) {
   const chartRef = useRef<HTMLDivElement>(null);
   const instanceRef = useRef<echarts.ECharts | null>(null);
 
@@ -26,37 +36,59 @@ export function ConsumptionBar({ data, unit = "kWh", color, height = 300, showDa
       instanceRef.current = echarts.init(chartRef.current);
     }
 
-    const barColor = color || getComputedStyle(document.documentElement).getPropertyValue("--primary-color").trim() || "#03a9f4";
+    const barColor = color || CHART_COLORS.primary();
+    // Create a faded version for gradient bottom
+    const barColorFaded = barColor + "60"; // 38% opacity hex suffix
 
     const option: echarts.EChartsCoreOption = {
+      ...baseAnimation(),
       tooltip: {
-        trigger: "axis",
+        ...baseTooltip("axis"),
         formatter: (params: any) => {
           const p = Array.isArray(params) ? params[0] : params;
-          return `${p.name}<br/>${p.value.toFixed(2)} ${unit}`;
+          return `${p.name}<br/><strong>${p.value.toFixed(2)} ${unit}</strong>`;
         },
       },
-      grid: { left: 50, right: 16, top: 16, bottom: showDataZoom ? 60 : 30 },
+      grid: baseGrid(showDataZoom),
       xAxis: {
         type: "category",
         data: data.map((d) => {
           const date = new Date(d.date);
           return `${date.getMonth() + 1}/${date.getDate()}`;
         }),
-        axisLabel: { color: "#727272", fontSize: 11 },
-        axisLine: { lineStyle: { color: "#e0e0e0" } },
+        axisLabel: baseAxisLabel(),
+        axisLine: { lineStyle: { color: CHART_COLORS.grid() } },
+        axisTick: { show: false },
       },
       yAxis: {
         type: "value",
-        axisLabel: { color: "#727272", fontSize: 11, formatter: `{value}` },
-        splitLine: { lineStyle: { color: "#e0e0e0", type: "dashed" } },
+        axisLabel: baseAxisLabel(),
+        splitLine: baseSplitLine(),
       },
       series: [
         {
           type: "bar",
           data: data.map((d) => d.value),
-          itemStyle: { color: barColor, borderRadius: [3, 3, 0, 0] },
-          barMaxWidth: 20,
+          itemStyle: {
+            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+              { offset: 0, color: barColor },
+              { offset: 1, color: barColorFaded },
+            ]),
+            borderRadius: [4, 4, 0, 0],
+          },
+          barMaxWidth: 28,
+          markLine: data.length >= 3 ? {
+            data: [{ type: "average", name: "Avg" }],
+            lineStyle: { type: "dashed", color: "#bdbdbd", width: 1 },
+            label: {
+              formatter: (p: any) => `${p.value.toFixed(1)}`,
+              position: "insideEndTop",
+              fontSize: 10,
+              color: "#999",
+            },
+            symbol: "none",
+            silent: true,
+          } : undefined,
         },
       ],
       ...(showDataZoom
@@ -69,7 +101,17 @@ export function ConsumptionBar({ data, unit = "kWh", color, height = 300, showDa
         : {}),
     };
 
-    instanceRef.current.setOption(option);
+    instanceRef.current.setOption(option, true);
+
+    // Click handler for drill-down
+    if (onBarClick) {
+      instanceRef.current.off("click");
+      instanceRef.current.on("click", (params: any) => {
+        if (params.dataIndex != null && data[params.dataIndex]) {
+          onBarClick(data[params.dataIndex].date);
+        }
+      });
+    }
 
     const handleResize = () => instanceRef.current?.resize();
     window.addEventListener("resize", handleResize);
@@ -77,7 +119,7 @@ export function ConsumptionBar({ data, unit = "kWh", color, height = 300, showDa
     return () => {
       window.removeEventListener("resize", handleResize);
     };
-  }, [data, unit, color, showDataZoom]);
+  }, [data, unit, color, showDataZoom, onBarClick]);
 
   useEffect(() => {
     return () => {
@@ -86,5 +128,10 @@ export function ConsumptionBar({ data, unit = "kWh", color, height = 300, showDa
     };
   }, []);
 
-  return <div ref={chartRef} style={{ width: "100%", height }} />;
+  return (
+    <div
+      ref={chartRef}
+      style={{ width: "100%", height, cursor: onBarClick ? "pointer" : undefined }}
+    />
+  );
 }

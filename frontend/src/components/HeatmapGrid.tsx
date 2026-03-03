@@ -3,6 +3,8 @@ import * as echarts from "echarts/core";
 import { HeatmapChart } from "echarts/charts";
 import { GridComponent, TooltipComponent, VisualMapComponent } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
+import { baseTooltip, baseAnimation } from "../utils/chartConfig";
+import { CHART_COLORS } from "../utils/theme";
 
 echarts.use([HeatmapChart, GridComponent, TooltipComponent, VisualMapComponent, CanvasRenderer]);
 
@@ -28,27 +30,28 @@ export function HeatmapGrid({ data, height = 280 }: HeatmapGridProps) {
     const values = data.map((d) => d.value);
     const maxVal = Math.max(...values, 0.1);
 
-    // ECharts heatmap data: [xIndex, yIndex, value]
     const heatmapData = data.map((d) => [d.hour, d.dayOfWeek, d.value]);
 
     const option: echarts.EChartsCoreOption = {
+      ...baseAnimation(),
       tooltip: {
+        ...baseTooltip("item"),
         formatter: (params: any) => {
           const [hour, day, value] = params.data;
-          return `${DAYS[day]} ${HOURS[hour]}<br/>${value.toFixed(2)} kWh`;
+          return `<strong>${DAYS[day]} ${HOURS[hour]}</strong><br/>${value.toFixed(2)} kWh`;
         },
       },
       grid: { left: 50, right: 60, top: 10, bottom: 30 },
       xAxis: {
         type: "category",
         data: HOURS,
-        axisLabel: { color: "#727272", fontSize: 10, interval: 2 },
+        axisLabel: { color: CHART_COLORS.text(), fontSize: 10, interval: 2 },
         splitArea: { show: true },
       },
       yAxis: {
         type: "category",
         data: DAYS,
-        axisLabel: { color: "#727272", fontSize: 11 },
+        axisLabel: { color: CHART_COLORS.text(), fontSize: 11 },
       },
       visualMap: {
         min: 0,
@@ -60,7 +63,7 @@ export function HeatmapGrid({ data, height = 280 }: HeatmapGridProps) {
         inRange: {
           color: ["#e3f2fd", "#42a5f5", "#1565c0", "#0d47a1"],
         },
-        textStyle: { color: "#727272", fontSize: 10 },
+        textStyle: { color: CHART_COLORS.text(), fontSize: 10 },
       },
       series: [
         {
@@ -73,7 +76,7 @@ export function HeatmapGrid({ data, height = 280 }: HeatmapGridProps) {
       ],
     };
 
-    instanceRef.current.setOption(option);
+    instanceRef.current.setOption(option, true);
 
     const handleResize = () => instanceRef.current?.resize();
     window.addEventListener("resize", handleResize);

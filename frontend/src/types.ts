@@ -118,3 +118,39 @@ export const DEFAULT_SETTINGS: DashboardSettings = {
 // Tab types
 
 export type TabId = "situation" | "electricity" | "water" | "settings";
+
+export type UtilityType = "electricity" | "water";
+
+export interface MonthlyConsumptionPoint {
+  monthKey: string;     // "2025-01", "2025-02", etc.
+  label: string;        // "Jan 25", "Feb 25"
+  usage: number;        // kWh or m³
+  cost: number;
+  utility: UtilityType;
+  source: "actual" | "estimated";
+}
+
+export interface UsageFunnelStage {
+  id: "total" | "known" | "base" | "over_budget";
+  label: string;
+  value: number;
+  percent: number;
+}
+
+export interface DashboardMetrics {
+  electricity: {
+    dailyRate: number;
+    monthTotal: number;
+    monthCost: number;
+    forecast: ForecastResult;
+    sparkline: number[];
+    anomaly: AnomalyResult | null;
+  };
+  water: {
+    dailyRate: number;     // L/day
+    monthEstimate: number; // m³
+    monthCost: number;
+  };
+  funnelStages: UsageFunnelStage[];
+  monthlyPoints: MonthlyConsumptionPoint[];
+}

@@ -1,27 +1,16 @@
-# Utility Manual Tracking — Device-Aware Smoothing Spec
+# Utility Manual Tracking — Specs & Reference
 
 Fork: `github.com/kinivi/utility-manual-tracking`
 
-## Overview
+---
+
+## Part 1: Device-Aware Smoothing (Backend)
+
+### Overview
 
 Custom HACS integration for Home Assistant that tracks utility meters (electricity, gas, water) via manual readings. Instead of relying on smart meters, users submit physical meter readings through the HA UI, and the component generates hourly statistics by interpolating between readings.
 
 The key addition is the **device-aware algorithm** — instead of pure linear interpolation (spreading consumption evenly), it uses real consumption data from individually-measured devices (smart plugs, energy monitors) to create realistic hourly distributions.
-
-## Problem
-
-Linear interpolation produces flat, unrealistic statistics:
-- 707 kWh over 126 days = 5.6 kWh/day, every day identical
-- Energy Dashboard shows no variation, making it useless for analysis
-
-With device-aware smoothing:
-- Days when the washing machine ran show 9-12 kWh
-- Idle days show ~5.2 kWh
-- The distribution reflects actual usage patterns
-
-## Architecture
-
-The component creates its own sensor entities — it does **not** replace existing HA helpers (input_number, input_datetime). It integrates alongside them via automation.
 
 ### Data Flow
 
@@ -36,142 +25,218 @@ User enters reading in dashboard (input_number + input_datetime)
         → Energy Dashboard shows results
 ```
 
-## Device-Aware Algorithm
+### Device-Aware Algorithm
 
 Core logic in `device_aware_fitter.py:DeviceAwareInterpolate.guesstimate()`.
 
-### Steps
-
-1. Calculate `delta_v` = new_reading - previous_reading (total consumption in period)
+1. Calculate `delta_v` = new_reading - previous_reading
 2. Query HA recorder for hourly `change` statistics from configured device entities
-3. For each hour between readings, look up known device consumption `K[h]`
+3. For each hour, look up known device consumption `K[h]`
 4. Sum total known: `K = sum(K[h] for all hours)`
-5. Calculate residual base load:
-   ```
-   residual = max(0, delta_v - K)
-   base_per_hour = residual / num_hours
-   ```
-6. Each hour gets: `consumption[h] = K[h] + base_per_hour`
-7. Build cumulative datapoints for statistics
+5. Residual base load: `residual = max(0, delta_v - K)`, `base_per_hour = residual / num_hours`
+6. Each hour: `consumption[h] = K[h] + base_per_hour`
 
-### Edge Case: K > delta_v
+Edge case: when K > delta_v (measurement error), residual = 0, only device data used.
 
-When known device consumption exceeds the meter delta (measurement error, meter rounding), `residual = 0`. Only device data is used. The algorithm trusts device sensors over the meter in this case.
+### Services
 
-### Extrapolation
+| Service | Purpose | Target |
+|---------|---------|--------|
+| `utility_manual_tracking.update_meter_value` | Submit new reading | sensor entity_id |
+| `utility_manual_tracking.reset_meter_statistics` | Clear + recalculate all stats | sensor entity_id |
 
-Future extrapolation (current state estimation) uses linear slope-based approach since we cannot predict future device usage.
+`update_meter_value` fields: `value` (float, required), `date` (string `YYYY-mm-dd HH`, optional).
 
-### Unit Normalization
+### Config Entry
 
-The `_query_device_consumption` method passes `{"energy": self._attr_native_unit_of_measurement}` to `statistics_during_period`. This ensures all device statistics are normalized to the meter's unit (e.g., a washer reporting in Wh gets converted to kWh automatically by HA).
+- **Version:** 2
+- Migration v1→v2 adds `known_device_entities: []`
+- Options flow for adding/removing device entities post-setup
 
-## Files Modified/Created
+---
 
-### New Files
+## Part 2: Utility Dashboard (Frontend Panel)
 
-| File | Purpose |
-|------|---------|
-| `device_aware_fitter.py` | `DeviceAwareInterpolate` and `DeviceAwareExtrapolate` classes |
-| `tests/test_device_aware_fitter.py` | 9 test cases for the algorithm |
+### Overview
 
-### Modified Files
+Full-page React dashboard panel appearing in the HA sidebar as "Utilities". Provides cost tracking, forecasting, anomaly detection, water meter visualization, and device-level electricity breakdown.
 
-| File | Changes |
-|------|---------|
-| `consts.py` | Added `CONF_ALGORITHM`, `CONF_KNOWN_DEVICE_ENTITIES` constants |
-| `algorithms.py` | Registered `device_aware` in `ALGORITHMS` dict; `interpolate()` accepts optional `device_hourly_consumption` kwarg and creates fresh `DeviceAwareInterpolate` instance per call |
-| `sensor.py` | Added `known_device_entities` param, `_query_device_consumption()` method, device data querying in `set_value()` and `reset_statistics()` |
-| `config_flow.py` | Two-step config flow (Step 1: algorithm dropdown, Step 2: EntitySelector for devices); `OptionsFlowWithConfigEntry` for reconfiguration; `VERSION = 2` |
-| `__init__.py` | `async_migrate_entry()` for v1->v2 migration; options update listener; registered `reset_meter_statistics` service |
-| `statistics.py` | `reset_statistics()` uses `get_instance(hass)` + `clear_statistics(instance, [id])` with try/except; `backfill_statistics()` unchanged |
-| `services.yaml` | Added `reset_meter_statistics` service definition |
-| `translations/en.json` | Strings for device_aware step, options flow, error messages |
+### Tech Stack
 
-## Config Flow
+| Layer | Technology |
+|-------|-----------|
+| UI | React 18 + TypeScript |
+| Charts | Apache ECharts 5.5 |
+| Styling | Tailwind CSS 3.4 |
+| Bundler | Vite 6 (IIFE output, single file) |
+| Web Component | `<utility-dashboard-panel>` with Shadow DOM |
 
-### Step 1: Basic Setup
-- Meter name (e.g., "Electricity Meter")
-- Meter unit (e.g., "kWh")
-- Meter class (e.g., "energy")
-- Algorithm dropdown: `linear` | `device_aware`
+### Project Structure
 
-### Step 2: Device Selection (only if device_aware)
-- Multi-select `EntitySelector` filtered to `domain=sensor, device_class=energy`
-- User picks known device entities (smart plugs, energy monitors)
-
-### Options Flow
-- Available post-setup to add/remove known device entities
-- Triggers integration reload on save
-
-### Config Entry Migration
-- v1 -> v2: Adds empty `known_device_entities: []` to existing entries
-
-## Services
-
-### `utility_manual_tracking.update_meter_value`
-Submit a new meter reading.
-- **target**: entity_id of the tracking sensor
-- **value** (required): meter reading (float)
-- **date** (optional): reading date in `YYYY-mm-dd HH` format
-
-### `utility_manual_tracking.reset_meter_statistics`
-Clear and recalculate all statistics from stored readings. Useful after bug fixes or config changes.
-- **target**: entity_id of the tracking sensor
-
-## HA Integration Points
-
-### Recorder Statistics API
-- `statistics_during_period()` — queries hourly `change` data from device entities with unit normalization
-- `async_add_external_statistics()` — writes backfilled hourly statistics
-- `clear_statistics()` — clears old statistics before re-backfill (requires `Recorder` instance, not `HomeAssistant`)
-
-### Entity Storage
-- Uses `homeassistant.helpers.storage.Store` for persistence
-- Stores: last_read, last_updated, previous_reads (up to 10), algorithm, known_device_entities
-- Survives HA restarts
-
-### Automation Integration
-The existing meters dashboard at `/meters-dashboard/input` has an automation (`automation.submit_electricity_meter_reading`) that forwards readings to the component:
-```yaml
-- action: utility_manual_tracking.update_meter_value
-  target:
-    entity_id: sensor.utility_manual_tracking_electricity_meter_energy
-  data:
-    value: "{{ states('input_number.electricity_input') | float }}"
-    date: "{{ states('input_datetime.electricity_input_date') }} 00"
+```
+frontend/
+├── package.json
+├── vite.config.ts           # IIFE build → utility-dashboard-panel.js
+├── tsconfig.json
+├── tailwind.config.js       # ha-* colors mapped to HA CSS vars
+├── postcss.config.js
+└── src/
+    ├── main.tsx             # Web component shell (Shadow DOM + throttled renders)
+    ├── App.tsx              # Tab navigation (Overview / Electricity / Water / Settings)
+    ├── types.ts             # All TS types + DEFAULT_SETTINGS
+    ├── index.css            # Tailwind directives + base styles
+    ├── vite-env.d.ts        # Vite ?inline CSS type declaration
+    │
+    ├── hooks/
+    │   ├── useHass.ts       # HassContext (React context for hass object)
+    │   ├── useStatistics.ts # Electricity stats via recorder/statistics_during_period
+    │   ├── useWaterMeters.ts # Water meter entity states from hass.states
+    │   ├── useDevices.ts    # Device consumption stats (washer/servers/vacuum)
+    │   └── useSettings.ts   # localStorage-backed dashboard settings
+    │
+    ├── pages/
+    │   ├── SituationRoom.tsx    # Overview: KPIs, budget progress, anomaly, 30d chart
+    │   ├── ElectricityDetail.tsx # Consumption bars, device pie, cost, forecast, heatmap
+    │   ├── WaterDetail.tsx      # Per-meter gauges, hot/cold ratio, reading history
+    │   └── Settings.tsx         # Rate/budget/anomaly config
+    │
+    ├── components/
+    │   ├── KPICard.tsx          # Metric card with icon + value + unit
+    │   ├── ConsumptionBar.tsx   # Daily bar chart (ECharts)
+    │   ├── DevicePie.tsx        # Device breakdown pie chart
+    │   ├── CostSummary.tsx      # Cost breakdown (daily/monthly/annual)
+    │   ├── ForecastLine.tsx     # Trend line with projection
+    │   ├── RangeGauge.tsx       # Normal/warning range indicator
+    │   ├── AnomalyAlert.tsx     # Z-score anomaly banner
+    │   ├── HeatmapGrid.tsx      # Hour × day-of-week heatmap
+    │   ├── ReadingTimeline.tsx   # Reading history with deltas
+    │   └── WaterBreakdown.tsx   # Stacked hot/cold bar chart
+    │
+    └── utils/
+        ├── statistics.ts    # statsToDaily, statsToHourlyHeatmap, currentMonthTotal
+        ├── forecast.ts      # Linear regression, trend detection
+        ├── anomaly.ts       # Z-score anomaly detection
+        └── cost.ts          # dailyCost, monthlyCost, budgetProgress, formatCurrency
 ```
 
-## Current Configuration
+### HA Entity IDs
 
-- **Sensor**: `sensor.utility_manual_tracking_electricity_meter_energy`
-- **Algorithm**: `device_aware`
-- **Known devices**:
-  - `sensor.bathroom_washer_energy_this_month` (Wh, auto-converted to kWh)
-  - `sensor.smart_plug_servers_energy` (kWh)
-  - `sensor.smart_plug_vacuum_energy` (kWh)
-- **Readings stored**:
-  - 55,411 kWh @ 2025-09-21
-  - 56,118 kWh @ 2026-01-25
-- **Statistics**: 127 daily entries, non-uniform distribution reflecting device activity
+#### Electricity
+| Entity | Notes |
+|--------|-------|
+| `sensor.utility_manual_tracking_electricity_meter_energy` | Main meter sensor |
+| Stat ID: `utility_manual_tracking:utility_manual_tracking_electricity_meter_energy_statistics_device_aware` | For `recorder/statistics_during_period` |
+
+#### Known Device Entities
+| Entity | Device | Unit |
+|--------|--------|------|
+| `sensor.bathroom_washer_energy_this_month` | Washer | **Wh** (not kWh!) |
+| `sensor.smart_plug_servers_energy` | Servers | kWh |
+| `sensor.smart_plug_vacuum_energy` | Vacuum | kWh |
+
+#### Water Meters
+| Meter Entity | Daily Entity | Location | Temp |
+|-------------|-------------|----------|------|
+| `sensor.water_kitchen_cold_meter` | `sensor.water_kitchen_cold_daily` | Kitchen | Cold |
+| `sensor.water_kitchen_hot_meter` | `sensor.water_kitchen_hot_daily` | Kitchen | Hot |
+| `sensor.water_bathroom_cold_meter` | `sensor.water_bathroom_cold_daily` | Bathroom | Cold |
+| `sensor.water_bathroom_hot_meter` | `sensor.water_bathroom_hot_daily` | Bathroom | Hot |
+| — | `sensor.water_total_daily` | All | All |
+
+Water meter attributes: `previous_reading`, `last_reading_date`, `unit_of_measurement`.
+
+### Dashboard Settings (localStorage)
+
+| Setting | Default | Unit |
+|---------|---------|------|
+| `electricityRate` | 0.35 | €/kWh |
+| `waterRate` | 4.8 | €/m³ |
+| `monthlyElectricityBudget` | 300 | kWh |
+| `monthlyWaterBudget` | 10 | m³ |
+| `anomalySensitivity` | 2 | σ |
+| `currency` | € | symbol |
+
+### Pages
+
+**Situation Room** (default): KPI cards, month-to-date progress bars, range gauge, anomaly banner, 30-day bar chart.
+
+**Electricity Detail**: Consumption bars with 30/90/365d selector, device pie, cost summary, forecast line, hourly heatmap.
+
+**Water Detail**: Total + cost KPIs, per-meter gauge cards, stacked breakdown, hot/cold ratio, reading history.
+
+**Settings**: Rates, budgets, anomaly sensitivity, currency selector.
+
+### Algorithms
+
+**Forecasting** (`forecast.ts`): Linear regression on daily data. Returns dailyRate, monthly/annual forecast, R² confidence, trend direction/percent.
+
+**Anomaly Detection** (`anomaly.ts`): Z-score on 30-day sliding window. `|z| > sensitivity` = anomaly, `|z| > 3` = critical.
+
+**Statistics** (`statistics.ts`): Aggregation helpers handling both string ISO dates and numeric timestamps from HA.
+
+---
+
+## Infrastructure
+
+### Proxmox Host (`smarthomenkise`)
+- **IP:** `192.168.178.20`
+- **PVE:** 8.3.4, Intel N100, 12GB RAM
+- **Credentials:** `root@pam` / `proxmox#Nik28Ita76`
+- **Web UI:** `https://192.168.178.20:8006`
+- **SSH:** `sshpass -p 'proxmox#Nik28Ita76' ssh root@192.168.178.20`
+
+### HAOS VM (VM 100)
+- **IP:** `192.168.178.48` (DHCP)
+- **OS:** Home Assistant OS 17.0, HA 2026.2.0
+- **SSH:** port 22, password `haos_ssh_2026`
+- **SSH command:** `sshpass -p 'haos_ssh_2026' ssh root@192.168.178.48`
+- **Config path:** `/config/custom_components/utility_manual_tracking/`
+- **Frontend path:** `/config/custom_components/utility_manual_tracking/frontend/`
+- **QEMU guest agent:** enabled (but only supports simple exec, no command args via REST API)
+
+### GitHub
+- **Repo:** `https://github.com/kinivi/utility-manual-tracking`
+- **Branch:** `main`
+
+### Build & Deploy
+
+```bash
+# Build
+cd frontend && npm run build
+
+# Deploy (direct SCP — fastest for development)
+sshpass -p 'haos_ssh_2026' scp \
+  custom_components/utility_manual_tracking/frontend/utility-dashboard-panel.js \
+  root@192.168.178.48:/config/custom_components/utility_manual_tracking/frontend/
+
+# Also deploy __init__.py if changed
+sshpass -p 'haos_ssh_2026' scp \
+  custom_components/utility_manual_tracking/__init__.py \
+  root@192.168.178.48:/config/custom_components/utility_manual_tracking/
+
+# Clear Python cache + restart
+sshpass -p 'haos_ssh_2026' ssh root@192.168.178.48 \
+  "rm -rf /config/custom_components/utility_manual_tracking/__pycache__; ha core restart"
+```
+
+---
 
 ## Bugs Found and Fixed
 
-### Unit Mismatch (commit 91313cf)
-`sensor.bathroom_washer_energy_this_month` reports in Wh while others use kWh. Without unit normalization, the washer's contribution was inflated 1000x. Fixed by passing `{"energy": self._attr_native_unit_of_measurement}` to `statistics_during_period`.
-
-### Missing reset_meter_statistics Service (commit 1ea49c1)
-Handler existed in `action.py` but was never registered in `__init__.py` or defined in `services.yaml`.
-
-### clear_statistics API Mismatch (commit d1c39cf)
-`clear_statistics` expects `(instance: Recorder, statistic_ids: list[str])` but code was passing `(hass: HomeAssistant, statistic_id: str)`. Fixed to use `get_instance(hass)` and wrap in list.
-
-### Robustness Fixes (commit 903be56)
-- Wrapped `clear_statistics` and `reset_statistics` in try/except so backfill proceeds even if clearing fails
-- Moved row aggregation inside try/except in `_query_device_consumption`
-- Handle `row["start"]` being either a `datetime` object or a numeric timestamp (HA version dependent)
+| Bug | Root Cause | Fix |
+|-----|-----------|-----|
+| Unit mismatch (washer 1000x inflated) | Washer reports Wh, others kWh, no unit normalization | Pass `units: { energy: "kWh" }` to all statistics queries |
+| `clear_statistics` TypeError | Takes `(instance, [ids])` not `(hass, id)` | Use `get_instance(hass)` + wrap in list |
+| Panel not appearing | `async_register_panel` doesn't exist | Use `async_register_built_in_panel` with `js_url` (not `module_url`) |
+| Services RuntimeError | `hass.services.register` from async context | Use `hass.services.async_register` |
+| `n.date.startsWith` crash | HA statistics `start` field is numeric timestamp, not string | Added `toISODate()` + `String()` guards |
+| CSS not applying | Styles in `document.head` don't reach HA's Shadow DOM | Inject CSS inside web component's own Shadow DOM |
+| Browser serving old JS | `cache_headers=True` sets 31-day max-age | Set `cache_headers=False`, renamed JS file to bust cache |
+| Python not picking up changes | `__pycache__` bytecode cache | Always `rm -rf __pycache__` before restart |
+| `row["start"]` type varies | HA version dependent: datetime or timestamp | Type guard: `isinstance(start, datetime)` check |
 
 ## Known Issues
 
-- Submitting a reading with the same timestamp as the last reading raises an unhandled `ValueError` (500 error). No deduplication or overwrite logic.
-- Water meters are not touched — only electricity uses device-aware smoothing.
+- Submitting a reading with same timestamp as last raises unhandled `ValueError`
+- The `date` field format is `YYYY-mm-dd HH` (space-separated, hour only, no minutes)
+- Water meters are read-only in dashboard — no submission/editing yet

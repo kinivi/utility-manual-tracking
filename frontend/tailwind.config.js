@@ -16,6 +16,20 @@ export default {
           success: "var(--success-color, #43a047)",
           warning: "var(--warning-color, #ffa600)",
         },
+        elec: {
+          DEFAULT: "var(--primary-color, #03a9f4)",
+        },
+        water: {
+          cold: "#42a5f5",
+          hot: "#ef5350",
+          DEFAULT: "#42a5f5",
+        },
+        device: {
+          washer: "#4fc3f7",
+          servers: "#ff7043",
+          vacuum: "#66bb6a",
+          base: "#bdbdbd",
+        },
       },
     },
   },

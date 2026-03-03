@@ -3,6 +3,8 @@ import * as echarts from "echarts/core";
 import { PieChart } from "echarts/charts";
 import { TooltipComponent, LegendComponent } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
+import { baseTooltip, baseAnimation } from "../utils/chartConfig";
+import { CHART_COLORS } from "../utils/theme";
 import type { DeviceConsumption } from "../types";
 
 echarts.use([PieChart, TooltipComponent, LegendComponent, CanvasRenderer]);
@@ -28,18 +30,27 @@ export function DevicePie({ devices, totalConsumption, height = 300 }: DevicePie
     const baseLoad = Math.max(0, totalConsumption - knownTotal);
 
     const pieData = [
-      ...devices.map((d) => ({ name: d.name, value: Math.round(d.value * 10) / 10, itemStyle: { color: d.color } })),
-      ...(baseLoad > 0 ? [{ name: "Base Load", value: Math.round(baseLoad * 10) / 10, itemStyle: { color: "#bdbdbd" } }] : []),
+      ...devices.map((d) => ({
+        name: d.name,
+        value: Math.round(d.value * 10) / 10,
+        itemStyle: { color: d.color },
+      })),
+      ...(baseLoad > 0
+        ? [{ name: "Base Load", value: Math.round(baseLoad * 10) / 10, itemStyle: { color: "#bdbdbd" } }]
+        : []),
     ];
 
     const option: echarts.EChartsCoreOption = {
+      ...baseAnimation(),
       tooltip: {
-        trigger: "item",
+        ...baseTooltip("item"),
         formatter: "{b}: {c} kWh ({d}%)",
       },
       legend: {
         bottom: 0,
-        textStyle: { color: "#727272" },
+        textStyle: { color: CHART_COLORS.text(), fontSize: 11 },
+        itemWidth: 12,
+        itemHeight: 12,
       },
       series: [
         {
@@ -57,7 +68,7 @@ export function DevicePie({ devices, totalConsumption, height = 300 }: DevicePie
       ],
     };
 
-    instanceRef.current.setOption(option);
+    instanceRef.current.setOption(option, true);
 
     const handleResize = () => instanceRef.current?.resize();
     window.addEventListener("resize", handleResize);

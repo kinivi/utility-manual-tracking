@@ -1,4 +1,7 @@
 import React from "react";
+import { Card } from "./ui/Card";
+import { EmptyState } from "./ui/EmptyState";
+import { BoltIcon } from "./ui/Icons";
 
 interface RangeGaugeProps {
   current: number;
@@ -9,6 +12,17 @@ interface RangeGaugeProps {
 }
 
 export function RangeGauge({ current, average, stdDev, unit, label }: RangeGaugeProps) {
+  if (average === 0 && current === 0) {
+    return (
+      <Card>
+        <EmptyState
+          icon={<BoltIcon className="w-8 h-8" />}
+          title="No range data"
+          description="Need more daily data points to show consumption range."
+        />
+      </Card>
+    );
+  }
   // Calculate position on a scale: average +/- 2 standard deviations
   const min = Math.max(0, average - 2 * stdDev);
   const max = average + 2 * stdDev;

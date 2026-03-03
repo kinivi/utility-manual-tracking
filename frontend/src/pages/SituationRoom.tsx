@@ -1,163 +1,200 @@
 import React, { useMemo } from "react";
-import { useStatistics } from "../hooks/useStatistics";
-import { useWaterMeters } from "../hooks/useWaterMeters";
-import { useDevices } from "../hooks/useDevices";
+import { useDashboardData } from "../hooks/useDashboardData";
+import { useSettings } from "../hooks/useSettings";
+import { useTimeRange } from "../hooks/useTimeRange";
 import { KPICard } from "../components/KPICard";
+import { MonthlyConsumptionLine } from "../components/MonthlyConsumptionLine";
+import { UsageAttributionFunnel } from "../components/UsageAttributionFunnel";
+import { BudgetProgress } from "../components/BudgetProgress";
+import { EnergyFlowBar } from "../components/EnergyFlowBar";
 import { ConsumptionBar } from "../components/ConsumptionBar";
-import { RangeGauge } from "../components/RangeGauge";
-import { AnomalyAlert } from "../components/AnomalyAlert";
-import { dailyAverage, currentMonthTotal } from "../utils/statistics";
-import { forecast } from "../utils/forecast";
-import { detectAnomaly } from "../utils/anomaly";
-import { dailyCost, monthlyCost, budgetProgress, formatCurrency } from "../utils/cost";
-import type { DashboardSettings } from "../types";
+import { Card } from "../components/ui/Card";
+import { RefreshBadge, SkeletonOverviewPage } from "../components/ui/Skeleton";
+import { BoltIcon, CoinsIcon, DropletIcon } from "../components/ui/Icons";
+import { budgetProgress, formatCurrency, monthlyCost } from "../utils/cost";
+import { computeMonthlyPoints } from "../utils/analyticsEngine";
+import type { TabId, MonthlyConsumptionPoint } from "../types";
 
 interface SituationRoomProps {
-  settings: DashboardSettings;
+  onTabChange: (tab: TabId) => void;
 }
 
-export function SituationRoom({ settings }: SituationRoomProps) {
-  const { dailyStats, loading: elecLoading } = useStatistics(30);
-  const { meters, totalDaily } = useWaterMeters();
-  const { devices } = useDevices(30);
+export function SituationRoom({ onTabChange }: SituationRoomProps) {
+  const { raw, metrics, loading, refreshing } = useDashboardData("situation");
+  const { settings } = useSettings();
+  const { resolved } = useTimeRange();
 
-  const elecForecast = useMemo(() => forecast(dailyStats), [dailyStats]);
+  const dailyStats = raw.electricity?.dailyStats ?? [];
+  const monthlyStats = raw.electricity?.monthlyStats ?? [];
+  const breakdown = raw.breakdown;
 
-  const elecAnomaly = useMemo(
-    () => detectAnomaly(dailyStats.map((d) => d.value), settings.anomalySensitivity),
-    [dailyStats, settings.anomalySensitivity]
-  );
-
-  const elecMonthTotal = useMemo(() => currentMonthTotal(dailyStats), [dailyStats]);
-  const elecDailyAvg = useMemo(() => dailyAverage(dailyStats), [dailyStats]);
-
+  // Budget progress
   const elecBudget = useMemo(
-    () => budgetProgress(elecMonthTotal, settings.monthlyElectricityBudget),
-    [elecMonthTotal, settings.monthlyElectricityBudget]
+    () => budgetProgress(metrics?.electricity.monthTotal ?? 0, settings.monthlyElectricityBudget),
+    [metrics, settings.monthlyElectricityBudget]
   );
 
-  // Standard deviation for gauge (from daily values)
-  const elecStdDev = useMemo(() => {
-    const values = dailyStats.map((d) => d.value);
-    if (values.length < 2) return 0;
-    const mean = values.reduce((s, v) => s + v, 0) / values.length;
-    const variance = values.reduce((s, v) => s + (v - mean) ** 2, 0) / (values.length - 1);
-    return Math.sqrt(variance);
-  }, [dailyStats]);
+  const waterMonthEstimate = metrics?.water.monthEstimate ?? 0;
+  const waterBudget = useMemo(
+    () => budgetProgress(waterMonthEstimate, settings.monthlyWaterBudget),
+    [waterMonthEstimate, settings.monthlyWaterBudget]
+  );
 
-  if (elecLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-ha-text-secondary">Loading dashboard data...</div>
-      </div>
-    );
+  // Monthly chart points
+  const elecMonthlyPoints = useMemo(
+    () => computeMonthlyPoints(monthlyStats, "electricity", settings.electricityRate, 12),
+    [monthlyStats, settings.electricityRate]
+  );
+
+  // Water: estimated current month only (no recorder history)
+  const waterMonthlyPoints = useMemo((): MonthlyConsumptionPoint[] => {
+    if (raw.totalDaily <= 0) return [];
+    const now = new Date();
+    const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const projectedM3 = (raw.totalDaily * daysInMonth) / 1000;
+    return [{
+      monthKey: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`,
+      label: `${MONTHS[now.getMonth()]} ${String(now.getFullYear()).slice(2)}`,
+      usage: +projectedM3.toFixed(1),
+      cost: +(projectedM3 * settings.waterRate).toFixed(2),
+      utility: "water",
+      source: "estimated",
+    }];
+  }, [raw.totalDaily, settings.waterRate]);
+
+  if (loading) {
+    return <SkeletonOverviewPage />;
   }
+
+  const elec = metrics?.electricity;
+  const water = metrics?.water;
 
   return (
     <div className="space-y-6">
-      {/* KPI Cards */}
+      {/* Refreshing indicator */}
+      {refreshing && <RefreshBadge />}
+
+      {/* 1. KPI Strip */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <KPICard
           label="Electricity"
-          icon="⚡"
-          value={elecForecast.dailyRate}
+          icon={<BoltIcon className="w-5 h-5" />}
+          value={elec?.dailyRate ?? 0}
           unit="kWh/day"
-          trend={{
-            direction: elecForecast.trendDirection,
-            percent: elecForecast.trendPercent,
-          }}
+          trend={elec && elec.forecast.dailyRate > 0 ? {
+            direction: elec.forecast.trendDirection,
+            percent: elec.forecast.trendPercent,
+          } : undefined}
+          comparison={elec && elec.forecast.dailyRate > 0 ? `${elec.forecast.trendDirection} vs last 7d` : undefined}
+          sparklineData={elec?.sparkline}
+          onClick={() => onTabChange("electricity")}
         />
         <KPICard
-          label="Elec. Cost"
-          icon="💰"
-          value={formatCurrency(dailyCost(elecForecast.dailyRate, settings.electricityRate), settings.currency)}
-          unit="/day"
+          label="MTD Cost"
+          icon={<CoinsIcon className="w-5 h-5" />}
+          value={formatCurrency(elec?.monthCost ?? 0, settings.currency)}
+          unit="/month"
           color="#ff9800"
+          comparison={elec ? `projected ${formatCurrency(elecBudget.projected * settings.electricityRate, settings.currency)}` : undefined}
+          onClick={() => onTabChange("electricity")}
         />
         <KPICard
           label="Water"
-          icon="💧"
-          value={totalDaily}
+          icon={<DropletIcon className="w-5 h-5" />}
+          value={water?.dailyRate ?? 0}
           unit="L/day"
           color="#42a5f5"
+          comparison={water && water.monthEstimate > 0 ? `${water.monthEstimate.toFixed(1)} m³ this month` : undefined}
+          onClick={() => onTabChange("water")}
         />
         <KPICard
-          label="Water Cost"
-          icon="💰"
-          value={formatCurrency(dailyCost(totalDaily / 1000, settings.waterRate), settings.currency)}
-          unit="/day"
-          color="#42a5f5"
+          label="Projected Cost"
+          icon={<CoinsIcon className="w-5 h-5" />}
+          value={formatCurrency(
+            (elecBudget.projected * settings.electricityRate) +
+            (waterBudget.projected * settings.waterRate),
+            settings.currency
+          )}
+          unit="/month"
+          color="#7e57c2"
+          comparison="electricity + water"
         />
       </div>
 
-      {/* Month to Date Progress */}
-      <div className="bg-ha-card rounded-xl p-4 shadow-sm border border-ha-divider">
-        <h3 className="text-sm font-semibold text-ha-text-secondary mb-3">Month to Date</h3>
-        <div className="space-y-4">
-          {/* Electricity progress */}
-          <div>
-            <div className="flex justify-between text-sm mb-1">
-              <span className="text-ha-text">
-                Electricity: {elecMonthTotal.toFixed(1)} kWh ({formatCurrency(monthlyCost(dailyStats, settings.electricityRate), settings.currency)})
-              </span>
-              <span className="text-ha-text-secondary">{elecBudget.percent}% of budget</span>
-            </div>
-            <div className="h-3 bg-gray-200 rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all ${
-                  elecBudget.status === "over"
-                    ? "bg-red-500"
-                    : elecBudget.status === "warning"
-                    ? "bg-amber-500"
-                    : "bg-green-500"
-                }`}
-                style={{ width: `${Math.min(100, elecBudget.percent)}%` }}
-              />
-            </div>
-            <p className="text-xs text-ha-text-secondary mt-1">
-              Projected: {elecBudget.projected.toFixed(1)} kWh / {settings.monthlyElectricityBudget} kWh budget
-            </p>
-          </div>
+      {/* 2. Monthly Consumption Trend */}
+      {(elecMonthlyPoints.length > 0 || waterMonthlyPoints.length > 0) && (
+        <Card>
+          <h3 className="text-base font-semibold text-ha-text mb-3">Monthly Consumption</h3>
+          <MonthlyConsumptionLine
+            electricityPoints={elecMonthlyPoints}
+            waterPoints={waterMonthlyPoints}
+            electricityBudget={settings.monthlyElectricityBudget}
+            waterBudget={settings.monthlyWaterBudget}
+            currency={settings.currency}
+          />
+        </Card>
+      )}
 
-          {/* Water progress (approximate) */}
-          <div>
-            <div className="flex justify-between text-sm mb-1">
-              <span className="text-ha-text">
-                Water: ~{(totalDaily * new Date().getDate() / 1000).toFixed(1)} m³ this month
-              </span>
-            </div>
-            <div className="h-3 bg-gray-200 rounded-full overflow-hidden">
-              <div
-                className="h-full rounded-full bg-blue-500 transition-all"
-                style={{
-                  width: `${Math.min(100, ((totalDaily * new Date().getDate() / 1000) / settings.monthlyWaterBudget) * 100)}%`,
-                }}
-              />
-            </div>
-            <p className="text-xs text-ha-text-secondary mt-1">
-              Budget: {settings.monthlyWaterBudget} m³/month
-            </p>
-          </div>
+      {/* 3. Usage Attribution Funnel */}
+      {metrics && metrics.funnelStages.length > 0 && (
+        <Card>
+          <h3 className="text-base font-semibold text-ha-text mb-3">
+            Usage Attribution — {resolved.label}
+          </h3>
+          <UsageAttributionFunnel stages={metrics.funnelStages} unit="kWh" />
+        </Card>
+      )}
+
+      {/* 4. Budget Progress */}
+      <Card>
+        <h3 className="text-base font-semibold text-ha-text mb-4">Month to Date</h3>
+        <div className="space-y-5">
+          <BudgetProgress
+            label="Electricity"
+            current={elec?.monthTotal ?? 0}
+            budget={settings.monthlyElectricityBudget}
+            unit="kWh"
+            cost={elec?.monthCost ?? monthlyCost(dailyStats, settings.electricityRate)}
+            currency={settings.currency}
+            projected={elecBudget.projected}
+          />
+          <BudgetProgress
+            label="Water"
+            current={waterMonthEstimate}
+            budget={settings.monthlyWaterBudget}
+            unit="m³"
+            cost={waterMonthEstimate * settings.waterRate}
+            currency={settings.currency}
+            projected={waterBudget.projected}
+          />
         </div>
-      </div>
+      </Card>
 
-      {/* Gauge + Anomaly */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <RangeGauge
-          current={elecForecast.dailyRate}
-          average={elecDailyAvg}
-          stdDev={elecStdDev}
-          unit="kWh"
-          label="Daily Consumption Range"
-        />
-        <AnomalyAlert anomaly={elecAnomaly} />
-      </div>
+      {/* 5. Energy Breakdown */}
+      {breakdown && (
+        <Card>
+          <h3 className="text-base font-semibold text-ha-text mb-3">
+            Energy Breakdown — {resolved.label}
+          </h3>
+          <EnergyFlowBar
+            devices={breakdown.totals}
+            baseLoad={breakdown.baseLoadTotal}
+            rate={settings.electricityRate}
+            currency={settings.currency}
+          />
+        </Card>
+      )}
 
-      {/* 30-Day Consumption Chart */}
-      <div className="bg-ha-card rounded-xl p-4 shadow-sm border border-ha-divider">
-        <h3 className="text-sm font-semibold text-ha-text-secondary mb-3">Last 30 Days — Electricity</h3>
-        <ConsumptionBar data={dailyStats} unit="kWh" showDataZoom={false} />
-      </div>
+      {/* 6. Daily Consumption Chart */}
+      {dailyStats.length > 0 && (
+        <Card>
+          <h3 className="text-base font-semibold text-ha-text mb-3">
+            Daily Electricity — {resolved.label}
+          </h3>
+          <ConsumptionBar data={dailyStats} unit="kWh" showDataZoom={false} />
+        </Card>
+      )}
     </div>
   );
 }
